@@ -1,0 +1,29 @@
+{
+  "name": "delivery-agent-management-system",
+  "version": "1.0.0",
+  "description": "Production-Ready Delivery Agent Management System (DAMS) with Node.js, Express, TypeScript, Next.js, PostgreSQL, Prisma, and Redis",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build:backend": "npm --prefix backend run build",
+    "build:frontend": "npm --prefix frontend run build",
+    "test:backend": "npm --prefix backend run test",
+    "seed": "npm --prefix backend run prisma:seed"
+  },
+  "keywords": [
+    "delivery-agent",
+    "redis-cache",
+    "express",
+    "typescript",
+    "prisma",
+    "postgresql",
+    "nextjs"
+  ],
+  "author": "",
+  "license": "ISC"
+}

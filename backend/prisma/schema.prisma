@@ -1,0 +1,29 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum AgentStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model DeliveryAgent {
+  id          String      @id @default(uuid()) @db.Uuid
+  name        String      @db.VarChar(100)
+  phone       String      @unique @db.VarChar(20)
+  email       String      @unique @db.VarChar(255)
+  serviceArea String      @map("service_area") @db.VarChar(100)
+  status      AgentStatus @default(ACTIVE)
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([status], name: "idx_agents_status")
+  @@index([serviceArea], name: "idx_agents_service_area")
+  @@index([createdAt(sort: Desc)], name: "idx_agents_created_at")
+  @@map("delivery_agents")
+}
