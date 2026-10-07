@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react';
 
 export interface ToastMessage {
@@ -10,71 +10,54 @@ export interface ToastMessage {
   message?: string;
 }
 
-interface ToastProps {
+interface ToastContainerProps {
   toasts: ToastMessage[];
   onDismiss: (id: string) => void;
 }
 
-export function ToastContainer({ toasts, onDismiss }: ToastProps) {
-  return (
-    <div className="fixed bottom-5 right-5 z-50 flex flex-col space-y-3 max-w-md w-full px-4 sm:px-0">
-      {toasts.map((toast) => (
-        <ToastItem key={toast.id} toast={toast} onDismiss={onDismiss} />
-      ))}
-    </div>
-  );
-}
-
-function ToastItem({
-  toast,
-  onDismiss,
-}: {
-  toast: ToastMessage;
-  onDismiss: (id: string) => void;
-}) {
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      onDismiss(toast.id);
-    }, 4500);
-
-    return () => clearTimeout(timer);
-  }, [toast.id, onDismiss]);
-
-  const bgStyles = {
-    success: 'bg-emerald-50 border-emerald-300 text-emerald-950',
-    error: 'bg-rose-50 border-rose-300 text-rose-950',
-    info: 'bg-indigo-50 border-indigo-300 text-indigo-950',
-  }[toast.type];
-
-  const Icon = {
-    success: CheckCircle2,
-    error: AlertCircle,
-    info: Info,
-  }[toast.type];
-
-  const iconColor = {
-    success: 'text-emerald-600',
-    error: 'text-rose-600',
-    info: 'text-indigo-600',
-  }[toast.type];
+export function ToastContainer({ toasts, onDismiss }: ToastContainerProps) {
+  if (toasts.length === 0) return null;
 
   return (
-    <div
-      className={`flex items-start p-4 rounded-xl border shadow-lg transition-all duration-300 transform translate-y-0 ${bgStyles}`}
-      role="alert"
-    >
-      <Icon className={`w-5 h-5 mt-0.5 mr-3 flex-shrink-0 ${iconColor}`} />
-      <div className="flex-1 text-sm">
-        <p className="font-semibold">{toast.title}</p>
-        {toast.message && <p className="mt-1 text-xs opacity-90">{toast.message}</p>}
-      </div>
-      <button
-        onClick={() => onDismiss(toast.id)}
-        className="ml-3 text-slate-400 hover:text-slate-700 transition"
-        aria-label="Dismiss toast"
-      >
-        <X className="w-4 h-4" />
-      </button>
+    <div className="fixed bottom-6 right-6 z-50 flex flex-col space-y-2.5 max-w-sm w-full pointer-events-none">
+      {toasts.map((toast) => {
+        const isSuccess = toast.type === 'success';
+        const isError = toast.type === 'error';
+
+        return (
+          <div
+            key={toast.id}
+            className={`pointer-events-auto flex items-start p-4 rounded-2xl border shadow-2xl backdrop-blur-md transition-all animate-fadeIn ${
+              isSuccess
+                ? 'bg-dark-900/95 border-emerald-500/40 text-emerald-400'
+                : isError
+                ? 'bg-dark-900/95 border-rose-500/40 text-rose-400'
+                : 'bg-dark-900/95 border-indigo-500/40 text-indigo-400'
+            }`}
+          >
+            <div className="mr-3 mt-0.5 flex-shrink-0">
+              {isSuccess && <CheckCircle2 className="w-5 h-5 text-emerald-400" />}
+              {isError && <AlertCircle className="w-5 h-5 text-rose-400" />}
+              {!isSuccess && !isError && <Info className="w-5 h-5 text-indigo-400" />}
+            </div>
+
+            <div className="flex-1 min-w-0">
+              <h5 className="text-xs font-bold text-white">{toast.title}</h5>
+              {toast.message && (
+                <p className="text-[11px] text-slate-300 mt-0.5 leading-relaxed">{toast.message}</p>
+              )}
+            </div>
+
+            <button
+              onClick={() => onDismiss(toast.id)}
+              className="ml-3 text-slate-400 hover:text-white transition"
+              aria-label="Dismiss toast"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -1,5 +1,7 @@
 import request from 'supertest';
 import app from '../../src/app';
+import { redisManager } from '../../src/config/redis.config';
+import { CacheService } from '../../src/services/cache.service';
 
 describe('Integration: Redis Cache-Aside & Invalidation Verification', () => {
   let agentId: string;
@@ -97,5 +99,107 @@ describe('Integration: Redis Cache-Aside & Invalidation Verification', () => {
 
     // Clean up created agent
     await request(app).delete(`/api/v1/agents/${newAgent.body.data.id}`);
+  });
+
+  it('Delete Invalidation: DELETE must evict detail cache and bump list version', async () => {
+    // 1. Create a dedicated agent to delete
+    const createRes = await request(app)
+      .post('/api/v1/agents')
+      .send({
+        name: 'Delete Invalidation Target',
+        email: `del.inval.${Date.now()}@zoop.delivery`,
+        phone: `+919874${Math.floor(100000 + Math.random() * 900000)}`,
+        serviceArea: 'Eviction Hub',
+      });
+    const targetId = createRes.body.data.id;
+
+    // 2. Pre-warm cache for target
+    const warmRes = await request(app).get(`/api/v1/agents/${targetId}`);
+    expect(warmRes.status).toBe(200);
+    const hitRes = await request(app).get(`/api/v1/agents/${targetId}`);
+    expect(hitRes.headers['x-cache']).toBe('HIT');
+
+    // 3. Delete target
+    const delRes = await request(app).delete(`/api/v1/agents/${targetId}`);
+    expect(delRes.status).toBe(204);
+
+    // 4. Subsequent read must return 404 NOT_FOUND (NOT stale cached data)
+    const postDelRes = await request(app).get(`/api/v1/agents/${targetId}`);
+    expect(postDelRes.status).toBe(404);
+    expect(postDelRes.body.error.code).toBe('NOT_FOUND');
+  });
+
+  describe('Fail-Open Architecture: Full CRUD resilience when Redis is offline', () => {
+    let failOpenAgentId: string;
+    const failOpenEmail = `failopen.${Date.now()}@zoop.delivery`;
+    const failOpenPhone = `+919873${Math.floor(100000 + Math.random() * 900000)}`;
+
+    let isReadySpy: jest.SpyInstance;
+
+    beforeAll(() => {
+      // Simulate Redis being completely offline / unreachable
+      isReadySpy = jest.spyOn(redisManager, 'isReady').mockReturnValue(false);
+      expect(CacheService.isHealthy()).toBe(false);
+    });
+
+    afterAll(() => {
+      // Restore Redis connection manager state
+      isReadySpy.mockRestore();
+    });
+
+    it('CREATE should succeed via PostgreSQL when Redis is down', async () => {
+      const res = await request(app)
+        .post('/api/v1/agents')
+        .send({
+          name: 'Resilient FailOpen Agent',
+          email: failOpenEmail,
+          phone: failOpenPhone,
+          serviceArea: 'Resilience Zone',
+          status: 'ACTIVE',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.id).toBeDefined();
+      failOpenAgentId = res.body.data.id;
+    });
+
+    it('LIST should serve directly from PostgreSQL without failing', async () => {
+      const res = await request(app).get('/api/v1/agents?limit=5');
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.headers['x-cache']).toBe('MISS');
+      expect(res.body.meta.cached).toBe(false);
+      expect(Array.isArray(res.body.data)).toBe(true);
+    });
+
+    it('DETAIL read should query PostgreSQL directly when Redis is down', async () => {
+      const res = await request(app).get(`/api/v1/agents/${failOpenAgentId}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.id).toBe(failOpenAgentId);
+      expect(res.headers['x-cache']).toBe('MISS');
+      expect(res.body.meta.cached).toBe(false);
+    });
+
+    it('UPDATE should modify PostgreSQL directly when Redis is down', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/agents/${failOpenAgentId}`)
+        .send({ serviceArea: 'Updated Under FailOpen' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.serviceArea).toBe('Updated Under FailOpen');
+    });
+
+    it('DELETE should delete from PostgreSQL cleanly when Redis is down', async () => {
+      const res = await request(app).delete(`/api/v1/agents/${failOpenAgentId}`);
+      expect(res.status).toBe(204);
+
+      const confirmRes = await request(app).get(`/api/v1/agents/${failOpenAgentId}`);
+      expect(confirmRes.status).toBe(404);
+    });
   });
 });

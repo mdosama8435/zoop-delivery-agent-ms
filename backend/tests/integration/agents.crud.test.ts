@@ -1,5 +1,6 @@
 import request from 'supertest';
 import app from '../../src/app';
+import { prisma } from '../../src/services/prisma.service';
 
 describe('Integration: Delivery Agents CRUD Lifecycle', () => {
   let createdAgentId: string;
@@ -45,6 +46,25 @@ describe('Integration: Delivery Agents CRUD Lifecycle', () => {
     expect(res.status).toBe(409);
     expect(res.body.success).toBe(false);
     expect(res.body.error.code).toBe('CONFLICT');
+    expect(res.body.error.message).toContain('email');
+  });
+
+  it('POST /api/v1/agents should reject duplicate phone with 409 Conflict', async () => {
+    const payload = {
+      name: 'Duplicate Phone Agent',
+      email: `other.email.${Date.now()}@zoop.delivery`,
+      phone: testPhone, // duplicate
+      serviceArea: 'Different Area',
+    };
+
+    const res = await request(app)
+      .post('/api/v1/agents')
+      .send(payload);
+
+    expect(res.status).toBe(409);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.code).toBe('CONFLICT');
+    expect(res.body.error.message).toContain('phone');
   });
 
   it('POST /api/v1/agents should reject malformed payload with 400 Bad Request', async () => {
@@ -61,6 +81,17 @@ describe('Integration: Delivery Agents CRUD Lifecycle', () => {
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
     expect(res.body.error.code).toBe('VALIDATION_FAILED');
+  });
+
+  it('POST /api/v1/agents should reject malformed JSON string with 400 Bad Request', async () => {
+    const res = await request(app)
+      .post('/api/v1/agents')
+      .set('Content-Type', 'application/json')
+      .send('{"name": "Broken JSON", invalid}');
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.code).toBe('MALFORMED_JSON');
   });
 
   it('GET /api/v1/agents should return paginated list (200 OK)', async () => {
@@ -121,6 +152,30 @@ describe('Integration: Delivery Agents CRUD Lifecycle', () => {
     expect(res.body.data.serviceArea).toBe(patchPayload.serviceArea);
   });
 
+  it('PATCH /api/v1/agents/:id should reject update with email collision with 409 Conflict', async () => {
+    // Create a second agent
+    const secondAgent = await request(app)
+      .post('/api/v1/agents')
+      .send({
+        name: 'Second Agent for Conflict',
+        email: `second.${Date.now()}@zoop.delivery`,
+        phone: `+91998877${Math.floor(1000 + Math.random() * 9000)}`,
+        serviceArea: 'Zone 2',
+      });
+    expect(secondAgent.status).toBe(201);
+
+    // Try to update createdAgentId with second agent's email
+    const collisionRes = await request(app)
+      .patch(`/api/v1/agents/${createdAgentId}`)
+      .send({ email: secondAgent.body.data.email });
+
+    expect(collisionRes.status).toBe(409);
+    expect(collisionRes.body.error.code).toBe('CONFLICT');
+
+    // Clean up second agent
+    await request(app).delete(`/api/v1/agents/${secondAgent.body.data.id}`);
+  });
+
   it('DELETE /api/v1/agents/:id should remove the agent (204 No Content)', async () => {
     const res = await request(app)
       .delete(`/api/v1/agents/${createdAgentId}`);
@@ -134,5 +189,21 @@ describe('Integration: Delivery Agents CRUD Lifecycle', () => {
       .get(`/api/v1/agents/${createdAgentId}`);
 
     expect(res.status).toBe(404);
+  });
+
+  it('Server error handling: should return 500 without leaking stack traces on unexpected error', async () => {
+    const findUniqueSpy = (jest.spyOn(prisma.deliveryAgent, 'findUnique') as unknown as jest.SpyInstance)
+      .mockRejectedValueOnce(new Error('Unexpected database connection timeout'));
+
+    const fakeUuid = '11111111-1111-1111-1111-111111111111';
+    const res = await request(app).get(`/api/v1/agents/${fakeUuid}`);
+
+    findUniqueSpy.mockRestore();
+
+    expect(res.status).toBe(500);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.code).toBe('INTERNAL_SERVER_ERROR');
+    expect(res.body.stack).toBeUndefined();
+    expect(res.body.error.stack).toBeUndefined();
   });
 });
